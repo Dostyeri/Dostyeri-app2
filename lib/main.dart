@@ -101,11 +101,14 @@ class _IRCMainScreenState extends State<IRCMainScreen> with TickerProviderStateM
       });
       _addMessage('Status', '-> Sunucuyla bağlantı kuruldu, yetkilendiriliyor...');
 
-      // IRC Kimlik Bildirimi
       _sendRaw('NICK $_currentNick');
       _sendRaw('USER $_currentNick 0 * :DostYeri User');
 
-      _socket!.transform(utf8.decoder).transform(const LineSplitter()).listen(
+      // Düzeltilmiş Stream Dinleme Mantığı
+      _socket!
+          .transform(utf8.decoder)
+          .transform(const LineSplitter())
+          .listen(
         _handleServerMessage,
         onError: (err) {
           _addMessage('Status', 'Bağlantı Hatası: $err');
@@ -129,7 +132,6 @@ class _IRCMainScreenState extends State<IRCMainScreen> with TickerProviderStateM
   }
 
   void _handleServerMessage(String line) {
-    // Ping/Pong bağlantı hızı ve kopmama önlemi
     if (line.startsWith('PING')) {
       final pingArg = line.substring(5);
       _sendRaw('PONG $pingArg');
@@ -160,7 +162,6 @@ class _IRCMainScreenState extends State<IRCMainScreen> with TickerProviderStateM
       _addMessage(channel, '[$timeStr] ** $nick kanaldan ayrıldı.');
       _removeUserFromChannel(channel, nick);
     } else if (line.contains(' 353 ')) {
-      // Kanal kullanıcı listesi (Names)
       try {
         final parts = line.split(' 353 ')[1].split(' :');
         final channel = parts[0].split(' ').last;
@@ -228,7 +229,6 @@ class _IRCMainScreenState extends State<IRCMainScreen> with TickerProviderStateM
     _inputController.clear();
   }
 
-  // Tıklanan nick için yönetim menüsü
   void _showUserActionMenu(String rawNick, String channelName) {
     final cleanNick = rawNick.replaceAll(RegExp(r'[@+~%&]'), '');
 
@@ -319,7 +319,6 @@ class _IRCMainScreenState extends State<IRCMainScreen> with TickerProviderStateM
             ),
           ),
         ],
-        // Üst sekmeler kaydırılabilir yapıda
         bottom: _tabs.isNotEmpty
             ? TabBar(
                 controller: _tabController,
@@ -331,14 +330,13 @@ class _IRCMainScreenState extends State<IRCMainScreen> with TickerProviderStateM
               )
             : null,
       ),
-
-      // Sağ taraftan açılan kapanan nick listesi çekmecesi
       endDrawer: Drawer(
         backgroundColor: const Color(0xFF1E1E1E),
         child: Column(
           children: [
+            // Düzeltilmiş UserAccountsDrawerHeader (decoration kullanıldı)
             UserAccountsDrawerHeader(
-              backgroundColor: const Color(0xFF2B2B2B),
+              decoration: const BoxDecoration(color: Color(0xFF2B2B2B)),
               accountName: Text('${currentTab.name} Rumuzları'),
               accountEmail: Text('${currentTab.userList.length} Kişi Bağlı'),
               currentAccountPicture: const CircleAvatar(
@@ -374,7 +372,6 @@ class _IRCMainScreenState extends State<IRCMainScreen> with TickerProviderStateM
           ],
         ),
       ),
-
       body: Column(
         children: [
           Expanded(
@@ -388,10 +385,11 @@ class _IRCMainScreenState extends State<IRCMainScreen> with TickerProviderStateM
                   padding: const EdgeInsets.symmetric(vertical: 2.0),
                   child: Text(
                     line,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontFamily: 'monospace',
                       fontSize: 13,
-                      color: Colors.white90,
+                      // Düzeltilmiş renk tanımlaması
+                      color: Colors.white.withOpacity(0.9),
                     ),
                   ),
                 );
