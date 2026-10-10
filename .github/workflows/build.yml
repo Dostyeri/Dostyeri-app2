@@ -1,5 +1,4 @@
-name: Flutter APK Build
-
+name: dostyeri_app2
 on:
   push:
     branches: [ "main", "master", "ana" ]
