@@ -96,7 +96,7 @@ class _IRCMainScreenState extends State<IRCMainScreen> with TickerProviderStateM
     _addMessage('Status', '-> $_server adresine hızlı bağlanılıyor...');
     try {
       _socket = await Socket.connect(_server, _port, timeout: const Duration(seconds: 5));
-      _socket!.setOption(SocketOption.tcpNoDelay, true); // Gecikmeyi (Nagle algoritmasını) kapatır, hızı artırır
+      _socket!.setOption(SocketOption.tcpNoDelay, true);
 
       setState(() {
         _isConnected = true;
@@ -106,8 +106,10 @@ class _IRCMainScreenState extends State<IRCMainScreen> with TickerProviderStateM
       _sendRaw('NICK $_currentNick');
       _sendRaw('USER $_currentNick 0 * :DostYeri User');
 
-      utf8.decoder
-          .bind(_socket!)
+      // Socket çakışmasını önleyen doğru akış yönetimi
+      _socket!
+          .cast<List<int>>()
+          .transform(utf8.decoder)
           .transform(const LineSplitter())
           .listen(
         _handleServerMessage,
@@ -129,12 +131,11 @@ class _IRCMainScreenState extends State<IRCMainScreen> with TickerProviderStateM
   void _sendRaw(String data) {
     if (_socket != null && _isConnected) {
       _socket!.write('$data\r\n');
-      _socket!.flush(); // Verinin anında iletilmesini sağlar, gecikmeyi önler
+      _socket!.flush();
     }
   }
 
   void _handleServerMessage(String line) {
-    // PING isteklerine anında PONG yanıtı vererek kopma ve lag önlenir
     if (line.startsWith('PING')) {
       final pingArg = line.substring(4);
       _sendRaw('PONG$pingArg');
