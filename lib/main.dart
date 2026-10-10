@@ -104,9 +104,9 @@ class _IRCMainScreenState extends State<IRCMainScreen> with TickerProviderStateM
       _sendRaw('NICK $_currentNick');
       _sendRaw('USER $_currentNick 0 * :DostYeri User');
 
-      // Düzeltilmiş Stream Dinleme Mantığı
-      _socket!
-          .transform(utf8.decoder)
+      // Düzeltilmiş Doğru Stream Dinleme Yapısı
+      utf8.decoder
+          .bind(_socket!)
           .transform(const LineSplitter())
           .listen(
         _handleServerMessage,
@@ -334,7 +334,6 @@ class _IRCMainScreenState extends State<IRCMainScreen> with TickerProviderStateM
         backgroundColor: const Color(0xFF1E1E1E),
         child: Column(
           children: [
-            // Düzeltilmiş UserAccountsDrawerHeader (decoration kullanıldı)
             UserAccountsDrawerHeader(
               decoration: const BoxDecoration(color: Color(0xFF2B2B2B)),
               accountName: Text('${currentTab.name} Rumuzları'),
@@ -388,7 +387,6 @@ class _IRCMainScreenState extends State<IRCMainScreen> with TickerProviderStateM
                     style: TextStyle(
                       fontFamily: 'monospace',
                       fontSize: 13,
-                      // Düzeltilmiş renk tanımlaması
                       color: Colors.white.withOpacity(0.9),
                     ),
                   ),
