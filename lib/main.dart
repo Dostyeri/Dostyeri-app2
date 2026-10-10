@@ -62,6 +62,8 @@ class _IRCMainScreenState extends State<IRCMainScreen> with TickerProviderStateM
 
   final TextEditingController _inputController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
+  
+  String _buffer = '';
 
   @override
   void initState() {
@@ -93,37 +95,45 @@ class _IRCMainScreenState extends State<IRCMainScreen> with TickerProviderStateM
   }
 
   Future<void> _connectToIRC() async {
-    _addMessage('Status', '-> $_server adresine hızlı bağlanılıyor...');
+    _addMessage('Status', '-> $_server adrese baglaniliyor...');
     try {
-      _socket = await Socket.connect(_server, _port, timeout: const Duration(seconds: 5));
+      _socket = await Socket.connect(_server, _port, timeout: const Duration(seconds: 10));
       _socket!.setOption(SocketOption.tcpNoDelay, true);
 
       setState(() {
         _isConnected = true;
       });
-      _addMessage('Status', '-> Sunucuyla bağlantı kuruldu, yetkilendiriliyor...');
+      _addMessage('Status', '-> Sunucuyla baglanti kuruldu, yetkilendiriliyor...');
 
       _sendRaw('NICK $_currentNick');
       _sendRaw('USER $_currentNick 0 * :DostYeri User');
 
-      // Socket çakışmasını önleyen doğru akış yönetimi
-      _socket!
-          .cast<List<int>>()
-          .transform(utf8.decoder)
-          .transform(const LineSplitter())
-          .listen(
-        _handleServerMessage,
+      // Doğrudan ham veriyi dinleyen ve asla çakışmayan kararlı Socket mimarisi
+      _socket!.listen(
+        (List<int> bytes) {
+          final data = utf8.decode(bytes, allowMalformed: true);
+          _buffer += data;
+          
+          while (_buffer.contains('\n')) {
+            final index = _buffer.indexOf('\n');
+            final line = _buffer.substring(0, index).trim();
+            _buffer = _buffer.substring(index + 1);
+            if (line.isNotEmpty) {
+              _handleServerMessage(line);
+            }
+          }
+        },
         onError: (err) {
-          _addMessage('Status', 'Bağlantı Hatası: $err');
+          _addMessage('Status', 'Baglanti Hatasi: $err');
           setState(() => _isConnected = false);
         },
         onDone: () {
-          _addMessage('Status', 'Sunucu bağlantıyı kapattı.');
+          _addMessage('Status', 'Sunucu baglantiyi kapatti.');
           setState(() => _isConnected = false);
         },
       );
     } catch (e) {
-      _addMessage('Status', 'Bağlantı kurulamadı: $e');
+      _addMessage('Status', 'Baglanti kurulamadi: $e');
       setState(() => _isConnected = false);
     }
   }
@@ -131,11 +141,11 @@ class _IRCMainScreenState extends State<IRCMainScreen> with TickerProviderStateM
   void _sendRaw(String data) {
     if (_socket != null && _isConnected) {
       _socket!.write('$data\r\n');
-      _socket!.flush();
     }
   }
 
   void _handleServerMessage(String line) {
+    // Otomatik PONG yanıtı
     if (line.startsWith('PING')) {
       final pingArg = line.substring(4);
       _sendRaw('PONG$pingArg');
@@ -158,14 +168,15 @@ class _IRCMainScreenState extends State<IRCMainScreen> with TickerProviderStateM
       final nick = line.substring(1, line.indexOf('!'));
       final channel = line.substring(line.indexOf(' JOIN :') + 7).trim();
       _addNewTab(channel);
-      _addMessage(channel, '[$timeStr] ** $nick kanala katıldı.');
+      _addMessage(channel, '[$timeStr] ** $nick kanala katildi.');
       _addUserToChannel(channel, nick);
     } else if (line.contains(' PART ')) {
       final nick = line.substring(1, line.indexOf('!'));
       final channel = line.split(' PART ')[1].split(' ')[0];
-      _addMessage(channel, '[$timeStr] ** $nick kanaldan ayrıldı.');
+      _addMessage(channel, '[$timeStr] ** $nick kanaldan ayrildi.');
       _removeUserFromChannel(channel, nick);
     } else if (line.contains(' 353 ')) {
+      // Names listesi ayrıştırma
       try {
         final colonIdx = line.indexOf(' :', 1);
         if (colonIdx != -1) {
@@ -221,7 +232,7 @@ class _IRCMainScreenState extends State<IRCMainScreen> with TickerProviderStateM
   }
 
   void _scrollToBottom() {
-    Future.delayed(const Duration(milliseconds: 50), () {
+    Future.delayed(const Duration(milliseconds: 100), () {
       if (_scrollController.hasClients) {
         _scrollController.animateTo(
           _scrollController.position.maxScrollExtent,
@@ -266,7 +277,7 @@ class _IRCMainScreenState extends State<IRCMainScreen> with TickerProviderStateM
             children: [
               ListTile(
                 leading: const Icon(Icons.chat, color: Colors.greenAccent),
-                title: const Text('Özel Mesaj (Query)'),
+                title: const Text('Ozel Mesaj (Query)'),
                 onTap: () {
                   Navigator.pop(ctx);
                   _addNewTab(cleanNick);
@@ -311,7 +322,7 @@ class _IRCMainScreenState extends State<IRCMainScreen> with TickerProviderStateM
                 onTap: () {
                   Navigator.pop(ctx);
                   _sendRaw('MODE $channelName +b $cleanNick');
-                  _sendRaw('KICK $channelName $cleanNick :Atıldınız.');
+                  _sendRaw('KICK $channelName $cleanNick :Atildiniz.');
                 },
               ),
             ],
@@ -332,7 +343,7 @@ class _IRCMainScreenState extends State<IRCMainScreen> with TickerProviderStateM
           Builder(
             builder: (ctx) => IconButton(
               icon: const Icon(Icons.people),
-              tooltip: 'Kanal Rumuzları',
+              tooltip: 'Kanal Rumuzlari',
               onPressed: () {
                 Scaffold.of(ctx).openEndDrawer();
               },
@@ -356,8 +367,8 @@ class _IRCMainScreenState extends State<IRCMainScreen> with TickerProviderStateM
           children: [
             UserAccountsDrawerHeader(
               decoration: const BoxDecoration(color: Color(0xFF2B2B2B)),
-              accountName: Text('${currentTab.name} Rumuzları'),
-              accountEmail: Text('${currentTab.userList.length} Kişi Bağlı'),
+              accountName: Text('${currentTab.name} Rumuzlari'),
+              accountEmail: Text('${currentTab.userList.length} Kisi Bagli'),
               currentAccountPicture: const CircleAvatar(
                 backgroundColor: Colors.lightBlue,
                 child: Icon(Icons.group, color: Colors.white),
