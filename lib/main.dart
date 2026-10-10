@@ -579,4 +579,3 @@ class _IRCMainScreenState extends State<IRCMainScreen> with TickerProviderStateM
                             size: 18,
                             color: isMe ? Colors.lightBlueAccent : Colors.white70,
                           ),
-                
