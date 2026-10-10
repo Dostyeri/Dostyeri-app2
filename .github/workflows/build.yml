@@ -1,4 +1,5 @@
-name: Dostyeri_app2
+name: Flutter APK Build
+
 on:
   push:
     branches: [ "main", "master", "ana" ]
@@ -27,7 +28,7 @@ jobs:
         run: flutter pub get
 
       - name: Create Android Platform Files
-        run: flutter create . --platforms=android --org com.dostyeri
+        run: flutter create . --project-name dostyeri_app2 --platforms=android --org com.dostyeri
 
       - name: Update minSdk to 24 for Android
         run: |
