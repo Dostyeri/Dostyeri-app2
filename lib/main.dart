@@ -509,73 +509,72 @@ class _IRCMainScreenState extends State<IRCMainScreen> with TickerProviderStateM
   Widget build(BuildContext context) {
     final currentTab = _tabs.isNotEmpty && _activeTabIndex < _tabs.length ? _tabs[_activeTabIndex] : _tabs[0];
 
-    return Scaffold(
+    return ScaffoldMessenger(
       key: _scaffoldMessengerKey,
-      appBar: AppBar(
-        title: Text(currentTab.name),
-        actions: [
-          Builder(
-            builder: (ctx) => IconButton(
-              icon: const Icon(Icons.people),
-              tooltip: 'Kanal Rumuzları',
-              onPressed: () {
-                Scaffold.of(ctx).openEndDrawer();
-              },
-            ),
-          ),
-        ],
-        bottom: _tabs.isNotEmpty
-            ? TabBar(
-                controller: _tabController,
-                isScrollable: true,
-                indicatorColor: Colors.lightBlueAccent,
-                labelColor: Colors.lightBlueAccent,
-                unselectedLabelColor: Colors.white70,
-                tabs: _tabs.map((t) {
-                  return Tab(
-                    child: Text(
-                      t.name,
-                      style: TextStyle(
-                        color: t.hasNotification ? Colors.redAccent : null,
-                        fontWeight: t.hasNotification ? FontWeight.bold : FontWeight.normal,
-                      ),
-                    ),
-                  );
-                }).toList(),
-              )
-            : null,
-      ),
-      endDrawer: Drawer(
-        backgroundColor: const Color(0xFF1E1E1E),
-        child: Column(
-          children: [
-            UserAccountsDrawerHeader(
-              decoration: const BoxDecoration(color: Color(0xFF2B2B2B)),
-              accountName: Text('${currentTab.name} Rumuzları'),
-              accountEmail: Text('${currentTab.userList.length} Kişi Bağlı'),
-              currentAccountPicture: const CircleAvatar(
-                backgroundColor: Colors.lightBlue,
-                child: Icon(Icons.group, color: Colors.white),
+      child: Scaffold(
+        appBar: AppBar(
+          title: Text(currentTab.name),
+          actions: [
+            Builder(
+              builder: (ctx) => IconButton(
+                icon: const Icon(Icons.people),
+                tooltip: 'Kanal Rumuzları',
+                onPressed: () {
+                  Scaffold.of(ctx).openEndDrawer();
+                },
               ),
             ),
-            Expanded(
-              child: currentTab.userList.isEmpty
-                  ? const Center(
+          ],
+          bottom: _tabs.isNotEmpty
+              ? TabBar(
+                  controller: _tabController,
+                  isScrollable: true,
+                  indicatorColor: Colors.lightBlueAccent,
+                  labelColor: Colors.lightBlueAccent,
+                  unselectedLabelColor: Colors.white70,
+                  tabs: _tabs.map((t) {
+                    return Tab(
                       child: Text(
-                        'Bu kanalda listelenecek rumuz yok\n(veya Status sekmesindesiniz)',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(color: Colors.white38, fontSize: 12),
+                        t.name,
+                        style: TextStyle(
+                          color: t.hasNotification ? Colors.redAccent : null,
+                          fontWeight: t.hasNotification ? FontWeight.bold : FontWeight.normal,
+                        ),
                       ),
-                    )
-                  : ListView.builder(
-                      itemCount: currentTab.userList.length,
-                      itemBuilder: (ctx, idx) {
-                        final nick = currentTab.userList[idx];
-                        final isMe = nick.replaceAll(RegExp(r'[@+~%&]'), '').toLowerCase() == _currentNick.toLowerCase();
-                        return ListTile(
-                          dense: true,
-                          leading: Icon(
-                            Icons.person,
-                            size: 18,
-                            color: isMe ? Colors.lightBlueAccent : Colors.white70,
-                          ),
+                    );
+                  }).toList(),
+                )
+              : null,
+        ),
+        endDrawer: Drawer(
+          backgroundColor: const Color(0xFF1E1E1E),
+          child: Column(
+            children: [
+              UserAccountsDrawerHeader(
+                decoration: const BoxDecoration(color: Color(0xFF2B2B2B)),
+                accountName: Text('${currentTab.name} Rumuzları'),
+                accountEmail: Text('${currentTab.userList.length} Kişi Bağlı'),
+                currentAccountPicture: const CircleAvatar(
+                  backgroundColor: Colors.lightBlue,
+                  child: Icon(Icons.group, color: Colors.white),
+                ),
+              ),
+              Expanded(
+                child: currentTab.userList.isEmpty
+                    ? const Center(
+                        child: Text(
+                          'Bu kanalda listelenecek rumuz yok\n(veya Status sekmesindesiniz)',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(color: Colors.white38, fontSize: 12),
+                        ),
+                      )
+                    : ListView.builder(
+                        itemCount: currentTab.userList.length,
+                        itemBuilder: (ctx, idx) {
+                          final nick = currentTab.userList[idx];
+                          final isMe = nick.replaceAll(RegExp(r'[@+~%&]'), '').toLowerCase() == _currentNick.toLowerCase();
+                          return ListTile(
+                            dense: true,
+                            leading: Icon(
+                              Icons.person,
+    
