@@ -1,37 +1,16 @@
-name: Flutter APK Build
+name: dostyeri_app
+description: DostYeri IRC Mobil Uygulamasi
+publish_to: 'none'
+version: 1.0.0+1
 
-on:
-  push:
-    branches: [ main, master, ana ]
-  workflow_dispatch:
+environment:
+  sdk: '>=3.0.0 <4.0.0'
 
-jobs:
-  build:
-    runs-on: ubuntu-latest
+dependencies:
+  flutter:
+    sdk: flutter
+  just_audio: ^0.9.36
+  cupertino_icons: ^1.0.6
 
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Set up Java
-        uses: actions/setup-java@v4
-        with:
-          distribution: 'zulu'
-          java-version: '17'
-
-      - name: Set up Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          flutter-version: '3.19.6'
-
-      - name: Install dependencies
-        run: flutter pub get
-
-      - name: Build Release APK
-        run: flutter build apk --release --no-tree-shake-icons
-
-      - name: Upload APK Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: dostyeri-release-apk
-          path: build/app/outputs/flutter-apk/app-release.apk
+flutter:
+  uses-material-design: true
