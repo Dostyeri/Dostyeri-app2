@@ -1,4 +1,4 @@
-name: dostyeri_app2
+name: Dostyeri_app2
 on:
   push:
     branches: [ "main", "master", "ana" ]
