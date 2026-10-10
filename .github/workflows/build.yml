@@ -27,7 +27,9 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
-      # BURASI: Android build.gradle dosyasına otomatik minSdk 24 ekler
+      - name: Create Android Platform Files
+        run: flutter create . --platforms=android --org com.dostyeri
+
       - name: Update minSdk to 24 for Android
         run: |
           BUILD_GRADLE="android/app/build.gradle"
@@ -35,8 +37,6 @@ jobs:
             sed -i 's/minSdk.*/minSdk 24/g' $BUILD_GRADLE
             sed -i 's/minSdkVersion.*/minSdkVersion 24/g' $BUILD_GRADLE
             echo "minSdk successfully updated to 24"
-          else
-            echo "build.gradle not found yet"
           fi
 
       - name: Build APK
