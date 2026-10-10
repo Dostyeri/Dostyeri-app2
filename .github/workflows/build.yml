@@ -2,40 +2,49 @@ name: Flutter APK Build
 
 on:
   push:
-    branches: [ main, master, ana ]
-  workflow_dispatch:
+    branches: [ "main", "master", "ana" ]
+  pull_request:
+    branches: [ "main", "master", "ana" ]
 
 jobs:
   build:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
       - name: Set up Java
         uses: actions/setup-java@v4
         with:
-          distribution: 'temurin'
+          distribution: 'zulu'
           java-version: '17'
 
-      - name: Set up Flutter
-        uses: subosito/flutter-action@v2
+      - uses: subosito/flutter-action@v2
         with:
-          channel: 'stable'
-
-      - name: Create Android Platform Files
-        run: flutter create . --platforms=android --org com.dostyeri
+          flutter-version: '3.19.x'
+          cache: true
 
       - name: Install dependencies
         run: flutter pub get
 
-      - name: Build Release APK
-        run: flutter build apk --release --no-tree-shake-icons
+      # BURASI: Android build.gradle dosyasına otomatik minSdk 24 ekler
+      - name: Update minSdk to 24 for Android
+        run: |
+          BUILD_GRADLE="android/app/build.gradle"
+          if [ -f "$BUILD_GRADLE" ]; then
+            sed -i 's/minSdk.*/minSdk 24/g' $BUILD_GRADLE
+            sed -i 's/minSdkVersion.*/minSdkVersion 24/g' $BUILD_GRADLE
+            echo "minSdk successfully updated to 24"
+          else
+            echo "build.gradle not found yet"
+          fi
+
+      - name: Build APK
+        run: flutter build apk --release
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: dostyeri-release-apk
+          name: release-apk
           path: build/app/outputs/flutter-apk/app-release.apk
           
