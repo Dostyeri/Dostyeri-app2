@@ -30,15 +30,24 @@ class DostYeriApp extends StatelessWidget {
 
 class ChannelTab {
   final String name;
-  final List<String> messages;
+  final List<ChatMessage> messages;
   final List<String> userList;
+  bool hasNotification;
 
   ChannelTab({
     required this.name,
-    List<String>? messages,
+    List<ChatMessage>? messages,
     List<String>? userList,
+    this.hasNotification = false,
   })  : messages = messages ?? [],
         userList = userList ?? [];
+}
+
+class ChatMessage {
+  final String text;
+  final Color color;
+
+  ChatMessage(this.text, {this.color = Colors.white70});
 }
 
 class IRCMainScreen extends StatefulWidget {
@@ -63,6 +72,8 @@ class _IRCMainScreenState extends State<IRCMainScreen> with TickerProviderStateM
   final TextEditingController _inputController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
   
+  final GlobalKey<ScaffoldMessengerState> _scaffoldMessengerKey = GlobalKey<ScaffoldMessengerState>();
+
   String _buffer = '';
 
   @override
@@ -80,6 +91,7 @@ class _IRCMainScreenState extends State<IRCMainScreen> with TickerProviderStateM
       if (_tabController!.indexIsChanging) return;
       setState(() {
         _activeTabIndex = _tabController!.index;
+        _tabs[_activeTabIndex].hasNotification = false;
       });
     });
   }
@@ -89,13 +101,12 @@ class _IRCMainScreenState extends State<IRCMainScreen> with TickerProviderStateM
       setState(() {
         _tabs.add(ChannelTab(name: name));
         _initTabController();
-        _tabController!.animateTo(_tabs.length - 1);
       });
     }
   }
 
   Future<void> _connectToIRC() async {
-    _addMessage('Status', '-> $_server adrese baglaniliyor...');
+    _addMessage('Status', ChatMessage('-> $_server adresine bağlanılıyor...', color: Colors.cyanAccent));
     try {
       _socket = await Socket.connect(_server, _port, timeout: const Duration(seconds: 10));
       _socket!.setOption(SocketOption.tcpNoDelay, true);
@@ -103,15 +114,14 @@ class _IRCMainScreenState extends State<IRCMainScreen> with TickerProviderStateM
       setState(() {
         _isConnected = true;
       });
-      _addMessage('Status', '-> Sunucuyla baglanti kuruldu, yetkilendiriliyor...');
+      _addMessage('Status', ChatMessage('-> Sunucuyla bağlantı kuruldu, yetkilendiriliyor...', color: Colors.cyanAccent));
 
       _sendRaw('NICK $_currentNick');
       _sendRaw('USER $_currentNick 0 * :DostYeri User');
 
-      // Doğrudan ham veriyi dinleyen ve asla çakışmayan kararlı Socket mimarisi
       _socket!.listen(
         (List<int> bytes) {
-          final data = utf8.decode(bytes, allowMalformed: true);
+          final data = latin1.decode(bytes, allowMalformed: true);
           _buffer += data;
           
           while (_buffer.contains('\n')) {
@@ -124,28 +134,28 @@ class _IRCMainScreenState extends State<IRCMainScreen> with TickerProviderStateM
           }
         },
         onError: (err) {
-          _addMessage('Status', 'Baglanti Hatasi: $err');
+          _addMessage('Status', ChatMessage('Bağlantı Hatası: $err', color: Colors.redAccent));
           setState(() => _isConnected = false);
         },
         onDone: () {
-          _addMessage('Status', 'Sunucu baglantiyi kapatti.');
+          _addMessage('Status', ChatMessage('Sunucu bağlantıyı kapattı.', color: Colors.redAccent));
           setState(() => _isConnected = false);
         },
       );
     } catch (e) {
-      _addMessage('Status', 'Baglanti kurulamadi: $e');
+      _addMessage('Status', ChatMessage('Bağlantı kurulamadı: $e', color: Colors.redAccent));
       setState(() => _isConnected = false);
     }
   }
 
   void _sendRaw(String data) {
     if (_socket != null && _isConnected) {
-      _socket!.write('$data\r\n');
+      _socket!.add(latin1.encode('$data\r\n'));
+      _socket!.flush();
     }
   }
 
   void _handleServerMessage(String line) {
-    // Otomatik PONG yanıtı
     if (line.startsWith('PING')) {
       final pingArg = line.substring(4);
       _sendRaw('PONG$pingArg');
@@ -154,6 +164,7 @@ class _IRCMainScreenState extends State<IRCMainScreen> with TickerProviderStateM
 
     final timeStr = DateTime.now().toString().substring(11, 16);
 
+    // 1. PRIVMSG (Kanal veya Özel Mesaj)
     if (line.contains(' PRIVMSG ')) {
       final parts = line.split(' PRIVMSG ');
       final senderNick = parts[0].substring(1).split('!')[0];
@@ -163,20 +174,94 @@ class _IRCMainScreenState extends State<IRCMainScreen> with TickerProviderStateM
 
       final tabTarget = target.startsWith('#') ? target : senderNick;
       _addNewTab(tabTarget);
-      _addMessage(tabTarget, '[$timeStr] <$senderNick> $msg');
-    } else if (line.contains(' JOIN :')) {
-      final nick = line.substring(1, line.indexOf('!'));
-      final channel = line.substring(line.indexOf(' JOIN :') + 7).trim();
-      _addNewTab(channel);
-      _addMessage(channel, '[$timeStr] ** $nick kanala katildi.');
-      _addUserToChannel(channel, nick);
-    } else if (line.contains(' PART ')) {
-      final nick = line.substring(1, line.indexOf('!'));
-      final channel = line.split(' PART ')[1].split(' ')[0];
-      _addMessage(channel, '[$timeStr] ** $nick kanaldan ayrildi.');
-      _removeUserFromChannel(channel, nick);
-    } else if (line.contains(' 353 ')) {
-      // Names listesi ayrıştırma
+      
+      if (msg.toLowerCase().contains(_currentNick.toLowerCase())) {
+        final tab = _tabs.firstWhere((t) => t.name.toLowerCase() == tabTarget.toLowerCase(), orElse: () => _tabs[0]);
+        setState(() {
+          tab.hasNotification = true;
+        });
+
+        _scaffoldMessengerKey.currentState?.showSnackBar(
+          SnackBar(
+            content: Text('$tabTarget:$senderNick size seslendi!'),
+            backgroundColor: Colors.redAccent,
+            duration: const Duration(seconds: 4),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+
+      _addMessage(tabTarget, ChatMessage('[$timeStr] <$senderNick>$msg', color: Colors.white));
+    } 
+    // 2. NOTICE (Sunucu ve Global Bildirimler)
+    else if (line.contains(' NOTICE ')) {
+      try {
+        final parts = line.split(' NOTICE ');
+        final sender = parts[0].startsWith(':') ? parts[0].substring(1).split('!')[0] : 'Sunucu';
+        final rest = parts[1];
+        final msg = rest.contains(' :') ? rest.substring(rest.indexOf(' :') + 2) : rest;
+
+        _addMessage('Status', ChatMessage('[$timeStr] *** [$sender]$msg', color: Colors.purpleAccent));
+      } catch (_) {
+        _addMessage('Status', ChatMessage('[$timeStr]$line', color: Colors.purpleAccent));
+      }
+    }
+    // 3. JOIN (Kanala Giriş)
+    else if (line.contains(' JOIN :') || (line.contains(' JOIN ') && !line.contains(' 353 '))) {
+      try {
+        final nick = line.substring(1, line.indexOf('!'));
+        String channel = '';
+        if (line.contains(' JOIN :')) {
+          channel = line.substring(line.indexOf(' JOIN :') + 7).trim();
+        } else {
+          channel = line.split(' JOIN ')[1].trim();
+          if (channel.startsWith(':')) channel = channel.substring(1);
+        }
+
+        _addNewTab(channel);
+        _addMessage(channel, ChatMessage('[$timeStr] ***$nick kanala girdi.', color: Colors.greenAccent));
+        _addUserToChannel(channel, nick);
+      } catch (_) {}
+    } 
+    // 4. PART (Kanaldan Ayrılma)
+    else if (line.contains(' PART ')) {
+      try {
+        final nick = line.substring(1, line.indexOf('!'));
+        final channel = line.split(' PART ')[1].split(' ')[0];
+        _addMessage(channel, ChatMessage('[$timeStr] ***$nick kanaldan ayrıldı (part).', color: Colors.orangeAccent));
+        _removeUserFromChannel(channel, nick);
+      } catch (_) {}
+    } 
+    // 5. QUIT (Sunucudan Çıkış)
+    else if (line.contains(' QUIT ')) {
+      try {
+        final nick = line.substring(1, line.indexOf('!'));
+        for (var tab in _tabs) {
+          if (tab.userList.contains(nick) || tab.userList.any((u) => u.contains(nick))) {
+            _addMessage(tab.name, ChatMessage('[$timeStr] ***$nick sunucudan çıktı.', color: Colors.redAccent));
+            _removeUserFromChannel(tab.name, nick);
+          }
+        }
+      } catch (_) {}
+    } 
+    // 6. MODE (Mod Değişiklikleri)
+    else if (line.contains(' MODE ')) {
+      try {
+        final prefix = line.substring(1);
+        final sender = prefix.contains('!') ? prefix.split('!')[0] : 'Sunucu';
+        final modePart = line.split(' MODE ')[1];
+        final target = modePart.split(' ')[0];
+        final modes = modePart.substring(target.length).trim();
+
+        if (target.startsWith('#')) {
+          _addMessage(target, ChatMessage('[$timeStr] ***$sender kanal modunu değiştirdi: $modes', color: Colors.yellowAccent));
+        } else {
+          _addMessage('Status', ChatMessage('[$timeStr] ***$sender mod değişikliği: $target$modes', color: Colors.yellowAccent));
+        }
+      } catch (_) {}
+    } 
+    // 7. 353 (NAMES Listesi)
+    else if (line.contains(' 353 ')) {
       try {
         final colonIdx = line.indexOf(' :', 1);
         if (colonIdx != -1) {
@@ -202,8 +287,15 @@ class _IRCMainScreenState extends State<IRCMainScreen> with TickerProviderStateM
           }
         }
       } catch (_) {}
-    } else {
-      _addMessage('Status', line);
+    } 
+    // 8. Sunucu Karşılama ve Global Bilgi Kodları (Status sekmesine yansır)
+    else {
+      String displayLine = line;
+      if (line.contains(' :')) {
+        final colonIdx = line.indexOf(' :');
+        displayLine = line.substring(colonIdx + 2);
+      }
+      _addMessage('Status', ChatMessage('[$timeStr]$displayLine', color: Colors.lightBlueAccent));
     }
   }
 
@@ -212,6 +304,12 @@ class _IRCMainScreenState extends State<IRCMainScreen> with TickerProviderStateM
     if (!tab.userList.contains(nick)) {
       setState(() {
         tab.userList.add(nick);
+        // Kendi nickimiz dahil tüm listeyi tam alfabetik olarak sıralama
+        tab.userList.sort((a, b) {
+          final cleanA = a.replaceAll(RegExp(r'[@+~%&]'), '').toLowerCase();
+          final cleanB = b.replaceAll(RegExp(r'[@+~%&]'), '').toLowerCase();
+          return cleanA.compareTo(cleanB);
+        });
       });
     }
   }
@@ -219,11 +317,11 @@ class _IRCMainScreenState extends State<IRCMainScreen> with TickerProviderStateM
   void _removeUserFromChannel(String channel, String nick) {
     final tab = _tabs.firstWhere((t) => t.name.toLowerCase() == channel.toLowerCase(), orElse: () => _tabs[0]);
     setState(() {
-      tab.userList.remove(nick);
+      tab.userList.removeWhere((u) => u.replaceAll(RegExp(r'[@+~%&]'), '').toLowerCase() == nick.replaceAll(RegExp(r'[@+~%&]'), '').toLowerCase());
     });
   }
 
-  void _addMessage(String tabName, String msg) {
+  void _addMessage(String tabName, ChatMessage msg) {
     setState(() {
       final tab = _tabs.firstWhere((t) => t.name.toLowerCase() == tabName.toLowerCase(), orElse: () => _tabs[0]);
       tab.messages.add(msg);
@@ -254,7 +352,7 @@ class _IRCMainScreenState extends State<IRCMainScreen> with TickerProviderStateM
     } else if (currentTab.name != 'Status') {
       _sendRaw('PRIVMSG ${currentTab.name} :$text');
       final timeStr = DateTime.now().toString().substring(11, 16);
-      _addMessage(currentTab.name, '[$timeStr] <$_currentNick> $text');
+      _addMessage(currentTab.name, ChatMessage('[$timeStr] <$_currentNick>$text', color: Colors.white));
     }
 
     _inputController.clear();
@@ -277,7 +375,7 @@ class _IRCMainScreenState extends State<IRCMainScreen> with TickerProviderStateM
             children: [
               ListTile(
                 leading: const Icon(Icons.chat, color: Colors.greenAccent),
-                title: const Text('Ozel Mesaj (Query)'),
+                title: const Text('Özel Mesaj (Query)'),
                 onTap: () {
                   Navigator.pop(ctx);
                   _addNewTab(cleanNick);
@@ -296,7 +394,7 @@ class _IRCMainScreenState extends State<IRCMainScreen> with TickerProviderStateM
                 title: const Text('Engelle (Ignore)'),
                 onTap: () {
                   Navigator.pop(ctx);
-                  _addMessage('Status', '$cleanNick engellendi.');
+                  _addMessage('Status', ChatMessage('$cleanNick engellendi.', color: Colors.orange));
                 },
               ),
               const Divider(color: Colors.white24),
@@ -305,7 +403,7 @@ class _IRCMainScreenState extends State<IRCMainScreen> with TickerProviderStateM
                 title: const Text('Voice Ver (+v)'),
                 onTap: () {
                   Navigator.pop(ctx);
-                  _sendRaw('MODE $channelName +v $cleanNick');
+                  _sendRaw('MODE $channelName +v$cleanNick');
                 },
               ),
               ListTile(
@@ -313,7 +411,7 @@ class _IRCMainScreenState extends State<IRCMainScreen> with TickerProviderStateM
                 title: const Text('Op Ver (+o)'),
                 onTap: () {
                   Navigator.pop(ctx);
-                  _sendRaw('MODE $channelName +o $cleanNick');
+                  _sendRaw('MODE $channelName +o$cleanNick');
                 },
               ),
               ListTile(
@@ -321,8 +419,8 @@ class _IRCMainScreenState extends State<IRCMainScreen> with TickerProviderStateM
                 title: const Text('Kick + Ban (Yasakla)'),
                 onTap: () {
                   Navigator.pop(ctx);
-                  _sendRaw('MODE $channelName +b $cleanNick');
-                  _sendRaw('KICK $channelName $cleanNick :Atildiniz.');
+                  _sendRaw('MODE $channelName +b$cleanNick');
+                  _sendRaw('KICK $channelName$cleanNick :Atıldınız.');
                 },
               ),
             ],
@@ -336,121 +434,23 @@ class _IRCMainScreenState extends State<IRCMainScreen> with TickerProviderStateM
   Widget build(BuildContext context) {
     final currentTab = _tabs.isNotEmpty && _activeTabIndex < _tabs.length ? _tabs[_activeTabIndex] : _tabs[0];
 
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(currentTab.name),
-        actions: [
-          Builder(
-            builder: (ctx) => IconButton(
-              icon: const Icon(Icons.people),
-              tooltip: 'Kanal Rumuzlari',
-              onPressed: () {
-                Scaffold.of(ctx).openEndDrawer();
-              },
-            ),
-          ),
-        ],
-        bottom: _tabs.isNotEmpty
-            ? TabBar(
-                controller: _tabController,
-                isScrollable: true,
-                indicatorColor: Colors.lightBlueAccent,
-                labelColor: Colors.lightBlueAccent,
-                unselectedLabelColor: Colors.white70,
-                tabs: _tabs.map((t) => Tab(text: t.name)).toList(),
-              )
-            : null,
-      ),
-      endDrawer: Drawer(
-        backgroundColor: const Color(0xFF1E1E1E),
-        child: Column(
-          children: [
-            UserAccountsDrawerHeader(
-              decoration: const BoxDecoration(color: Color(0xFF2B2B2B)),
-              accountName: Text('${currentTab.name} Rumuzlari'),
-              accountEmail: Text('${currentTab.userList.length} Kisi Bagli'),
-              currentAccountPicture: const CircleAvatar(
-                backgroundColor: Colors.lightBlue,
-                child: Icon(Icons.group, color: Colors.white),
-              ),
-            ),
-            Expanded(
-              child: currentTab.userList.isEmpty
-                  ? const Center(
-                      child: Text(
-                        'Bu kanalda listelenecek rumuz yok\n(veya Status sekmesindesiniz)',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(color: Colors.white38, fontSize: 12),
-                      ),
-                    )
-                  : ListView.builder(
-                      itemCount: currentTab.userList.length,
-                      itemBuilder: (ctx, idx) {
-                        final nick = currentTab.userList[idx];
-                        return ListTile(
-                          dense: true,
-                          leading: const Icon(Icons.person, size: 18, color: Colors.white70),
-                          title: Text(nick, style: const TextStyle(fontSize: 14)),
-                          onTap: () {
-                            Navigator.pop(ctx);
-                            _showUserActionMenu(nick, currentTab.name);
-                          },
-                        );
-                      },
-                    ),
-            ),
-          ],
+    return MaterialApp(
+      debugShowCheckedModeBanner: false,
+      scaffoldMessengerKey: _scaffoldMessengerKey,
+      theme: ThemeData.dark().copyWith(
+        primaryColor: const Color(0xFF1E88E5),
+        scaffoldBackgroundColor: const Color(0xFF121212),
+        appBarTheme: const AppBarTheme(
+          backgroundColor: Color(0xFF1F1F1F),
+          elevation: 2,
         ),
       ),
-      body: Column(
-        children: [
-          Expanded(
-            child: ListView.builder(
-              controller: _scrollController,
-              padding: const EdgeInsets.all(8.0),
-              itemCount: currentTab.messages.length,
-              itemBuilder: (ctx, idx) {
-                final line = currentTab.messages[idx];
-                return Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 2.0),
-                  child: Text(
-                    line,
-                    style: TextStyle(
-                      fontFamily: 'monospace',
-                      fontSize: 13,
-                      color: Colors.white.withOpacity(0.9),
-                    ),
-                  ),
-                );
-              },
-            ),
-          ),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 4.0),
-            color: const Color(0xFF1F1F1F),
-            child: Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: _inputController,
-                    style: const TextStyle(color: Colors.white),
-                    decoration: const InputDecoration(
-                      hintText: 'Mesaj yaz veya komut gir (/join #kanal)...',
-                      hintStyle: TextStyle(color: Colors.white38),
-                      border: InputBorder.none,
-                    ),
-                    onSubmitted: (_) => _sendMessage(),
-                  ),
-                ),
-                IconButton(
-                  icon: const Icon(Icons.send, color: Colors.lightBlueAccent),
-                  onPressed: _sendMessage,
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
+      home: Scaffold(
+        appBar: AppBar(
+          title: Text(currentTab.name),
+          actions: [
+            Builder(
+              builder: (ctx) => IconButton(
+                icon: const Icon(Icons.people),
+                tooltip: 'Kanal Rumuzları',
+                
