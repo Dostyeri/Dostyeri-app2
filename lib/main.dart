@@ -1,6 +1,7 @@
+import 'dart:io';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:just_audio/just_audio.dart';
-import 'package:irc/irc.dart';
 
 void main() {
   runApp(const DostYeriApp());
@@ -197,7 +198,6 @@ class _IrcLoginScreenState extends State<IrcLoginScreen> {
       ),
       body: Padding(
         padding: const EdgeInsets.all(16.0),
-        configuration: ViewConfiguration.empty,
         child: ListView(
           children: [
             const SizedBox(height: 10),
@@ -262,7 +262,7 @@ class IrcChatScreen extends StatefulWidget {
 }
 
 class _IrcChatScreenState extends State<IrcChatScreen> {
-  Client? _ircClient;
+  Socket? _socket;
   final List<String> _messages = [];
   final TextEditingController _msgController = TextEditingController();
   bool _isConnected = false;
@@ -273,57 +273,79 @@ class _IrcChatScreenState extends State<IrcChatScreen> {
     _connectToIrc();
   }
 
-  void _connectToIrc() {
-    final conf = ClientConfiguration(
-      widget.nickname,
-      widget.nickname,
-      widget.nickname,
-      'DostYeri User',
-      preferredEncodings: ['utf-8'],
-    );
-
-    _ircClient = Client(conf);
-
-    _ircClient!.onConnected.listen((_) {
-      if (mounted) {
-        setState(() {
-          _isConnected = true;
-          _messages.add('-> Sunucuya başarıyla bağlanıldı.');
-        });
-      }
-      _ircClient!.sendCommand(OClients.join(widget.channel));
-    });
-
-    _ircClient!.onMessage.listen((message) {
-      if (mounted) {
-        setState(() {
-          _messages.add('${message.from}: ${message.text}');
-        });
-      }
-    });
-
-    _ircClient!.onClose.listen((_) {
-      if (mounted) {
-        setState(() {
-          _isConnected = false;
-          _messages.add('<- Sunucu bağlantısı kesildi.');
-        });
-      }
-    });
-
+  Future<void> _connectToIrc() async {
     try {
-      _ircClient!.connect(widget.server, port: widget.port);
-    } catch (e) {
       setState(() {
-        _messages.add('Bağlantı Hatası: $e');
+        _messages.add('-> ${widget.server} adresine bağlanılıyor...');
       });
+
+      _socket = await Socket.connect(widget.server, widget.port);
+      
+      setState(() {
+        _isConnected = true;
+        _messages.add('-> Sunucuya bağlandı, yetkilendiriliyor...');
+      });
+
+      if (widget.password.isNotEmpty) {
+        _socket!.write('PASS ${widget.password}\r\n');
+      }
+      _socket!.write('NICK ${widget.nickname}\r\n');
+      _socket!.write('USER ${widget.nickname} 0 * :${widget.nickname}\r\n');
+
+      _socket!.listen(
+        (data) {
+          String serverResponse = utf8.decode(data);
+          List<String> lines = serverResponse.split('\r\n');
+          for (var line in lines) {
+            if (line.isNotEmpty) {
+              if (line.startsWith('PING')) {
+                String pingParam = line.split(' ')[1];
+                _socket!.write('PONG $pingParam\r\n');
+              } else if (line.contains(' 001 ')) {
+                _socket!.write('JOIN ${widget.channel}\r\n');
+                if (mounted) {
+                  setState(() {
+                    _messages.add('-> ${widget.channel} kanalına giriş yapıldı.');
+                  });
+                }
+              }
+              if (mounted) {
+                setState(() {
+                  _messages.add(line);
+                });
+              }
+            }
+          }
+        },
+        onDone: () {
+          if (mounted) {
+            setState(() {
+              _isConnected = false;
+              _messages.add('<- Bağlantı kapatıldı.');
+            });
+          }
+        },
+        onError: (error) {
+          if (mounted) {
+            setState(() {
+              _messages.add('Hata: $error');
+            });
+          }
+        },
+      );
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _messages.add('Bağlantı Kurulamadı: $e');
+        });
+      }
     }
   }
 
   void _sendMessage() {
-    if (_msgController.text.trim().isEmpty || _ircClient == null) return;
+    if (_msgController.text.trim().isEmpty || _socket == null || !_isConnected) return;
     String text = _msgController.text.trim();
-    _ircClient!.sendMessage(widget.channel, text);
+    _socket!.write('PRIVMSG ${widget.channel} :$text\r\n');
     setState(() {
       _messages.add('${widget.nickname}: $text');
     });
@@ -332,7 +354,7 @@ class _IrcChatScreenState extends State<IrcChatScreen> {
 
   @override
   void dispose() {
-    _ircClient?.disconnect();
+    _socket?.destroy();
     super.dispose();
   }
 
@@ -352,7 +374,7 @@ class _IrcChatScreenState extends State<IrcChatScreen> {
               itemBuilder: (context, index) {
                 return Padding(
                   padding: const EdgeInsets.symmetric(vertical: 2),
-                  child: Text(_messages[index], style: const TextStyle(fontSize: 16)),
+                  child: Text(_messages[index], style: const TextStyle(fontSize: 14)),
                 );
               },
             ),
@@ -369,7 +391,7 @@ class _IrcChatScreenState extends State<IrcChatScreen> {
                       hintText: 'Mesajınızı yazın...',
                       border: OutlineInputBorder(),
                       fillColor: Colors.white,
-                      filled: true,
+                      filled: extraFilled: true,
                     ),
                     onSubmitted: (_) => _sendMessage(),
                   ),
