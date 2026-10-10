@@ -76,7 +76,7 @@ class _RadioScreenState extends State<RadioScreen> {
   late AudioPlayer _audioPlayer;
   bool _isPlaying = false;
   bool _isLoading = false;
-  final String _streamUrl = 'https://radyo.dostyeri.com/listen';
+  final String _streamUrl = 'http://dinle.dostfm.org:8948/listen.pls';
 
   @override
   void initState() {
@@ -161,7 +161,7 @@ class IrcLoginScreen extends StatefulWidget {
 }
 
 class _IrcLoginScreenState extends State<IrcLoginScreen> {
-  final _serverController = TextEditingController(text: 'irc.dostyeri.com');
+  final _serverController = TextEditingController(text: 'irc.dostyeri.org');
   final _portController = TextEditingController(text: '6667');
   final _nickController = TextEditingController();
   final _passController = TextEditingController();
