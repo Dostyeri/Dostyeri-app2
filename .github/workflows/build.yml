@@ -23,9 +23,11 @@ jobs:
         uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
-          cache: true
 
-      - name: Get Flutter dependencies
+      - name: Create Android Platform Files
+        run: flutter create . --platforms=android --org com.dostyeri
+
+      - name: Install dependencies
         run: flutter pub get
 
       - name: Build Release APK
