@@ -93,9 +93,11 @@ class _IRCMainScreenState extends State<IRCMainScreen> with TickerProviderStateM
   }
 
   Future<void> _connectToIRC() async {
-    _addMessage('Status', '-> $_server adresine bağlanılıyor...');
+    _addMessage('Status', '-> $_server adresine hızlı bağlanılıyor...');
     try {
-      _socket = await Socket.connect(_server, _port, timeout: const Duration(seconds: 10));
+      _socket = await Socket.connect(_server, _port, timeout: const Duration(seconds: 5));
+      _socket!.setOption(SocketOption.tcpNoDelay, true); // Gecikmeyi (Nagle algoritmasını) kapatır, hızı artırır
+
       setState(() {
         _isConnected = true;
       });
@@ -104,7 +106,6 @@ class _IRCMainScreenState extends State<IRCMainScreen> with TickerProviderStateM
       _sendRaw('NICK $_currentNick');
       _sendRaw('USER $_currentNick 0 * :DostYeri User');
 
-      // Düzeltilmiş Doğru Stream Dinleme Yapısı
       utf8.decoder
           .bind(_socket!)
           .transform(const LineSplitter())
@@ -128,13 +129,15 @@ class _IRCMainScreenState extends State<IRCMainScreen> with TickerProviderStateM
   void _sendRaw(String data) {
     if (_socket != null && _isConnected) {
       _socket!.write('$data\r\n');
+      _socket!.flush(); // Verinin anında iletilmesini sağlar, gecikmeyi önler
     }
   }
 
   void _handleServerMessage(String line) {
+    // PING isteklerine anında PONG yanıtı vererek kopma ve lag önlenir
     if (line.startsWith('PING')) {
-      final pingArg = line.substring(5);
-      _sendRaw('PONG $pingArg');
+      final pingArg = line.substring(4);
+      _sendRaw('PONG$pingArg');
       return;
     }
 
@@ -163,12 +166,28 @@ class _IRCMainScreenState extends State<IRCMainScreen> with TickerProviderStateM
       _removeUserFromChannel(channel, nick);
     } else if (line.contains(' 353 ')) {
       try {
-        final parts = line.split(' 353 ')[1].split(' :');
-        final channel = parts[0].split(' ').last;
-        final nicks = parts[1].split(' ');
-        _addNewTab(channel);
-        for (var n in nicks) {
-          if (n.isNotEmpty) _addUserToChannel(channel, n);
+        final colonIdx = line.indexOf(' :', 1);
+        if (colonIdx != -1) {
+          final headerPart = line.substring(0, colonIdx);
+          final namesPart = line.substring(colonIdx + 2);
+          final headerTokens = headerPart.split(' ');
+          String channel = '';
+          for (var token in headerTokens) {
+            if (token.startsWith('#')) {
+              channel = token;
+              break;
+            }
+          }
+          if (channel.isNotEmpty) {
+            _addNewTab(channel);
+            final nicks = namesPart.split(' ');
+            for (var n in nicks) {
+              final clean = n.trim();
+              if (clean.isNotEmpty) {
+                _addUserToChannel(channel, clean);
+              }
+            }
+          }
         }
       } catch (_) {}
     } else {
@@ -201,11 +220,11 @@ class _IRCMainScreenState extends State<IRCMainScreen> with TickerProviderStateM
   }
 
   void _scrollToBottom() {
-    Future.delayed(const Duration(milliseconds: 100), () {
+    Future.delayed(const Duration(milliseconds: 50), () {
       if (_scrollController.hasClients) {
         _scrollController.animateTo(
           _scrollController.position.maxScrollExtent,
-          duration: const Duration(milliseconds: 200),
+          duration: const Duration(milliseconds: 100),
           curve: Curves.easeOut,
         );
       }
