@@ -39,6 +39,14 @@ jobs:
             echo "minSdk successfully updated to 24"
           fi
 
+      - name: Add Internet Permission
+        run: |
+          MANIFEST="android/app/src/main/AndroidManifest.xml"
+          if [ -f "$MANIFEST" ]; then
+            sed -i '/<manifest/a \    <uses-permission android:name="android.permission.INTERNET"/>' $MANIFEST
+            echo "Internet permission added successfully"
+          fi
+
       - name: Build APK
         run: flutter build apk --release
 
