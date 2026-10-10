@@ -1,7 +1,7 @@
-import 'dart:io';
+import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:just_audio/just_audio.dart';
 
 void main() {
   runApp(const DostYeriApp());
@@ -13,392 +13,410 @@ class DostYeriApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'DostYeri IRC & Radyo',
+      title: 'DostYeri.Org',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
-        useMaterial3: true,
+      theme: ThemeData.dark().copyWith(
+        primaryColor: const Color(0xFF1E88E5),
+        scaffoldBackgroundColor: const Color(0xFF121212),
+        appBarTheme: const AppBarTheme(
+          backgroundColor: Color(0xFF1F1F1F),
+          elevation: 2,
+        ),
       ),
-      home: const MainTabScreen(),
+      home: const IRCMainScreen(),
     );
   }
 }
 
-class MainTabScreen extends StatefulWidget {
-  const MainTabScreen({super.key});
+class ChannelTab {
+  final String name;
+  final List<String> messages;
+  final List<String> userList;
 
-  @override
-  State<MainTabScreen> createState() => _MainTabScreenState();
+  ChannelTab({
+    required this.name,
+    List<String>? messages,
+    List<String>? userList,
+  })  : messages = messages ?? [],
+        userList = userList ?? [];
 }
 
-class _MainTabScreenState extends State<MainTabScreen> {
-  int _currentIndex = 0;
-  final List<Widget> _screens = [
-    const RadioScreen(),
-    const IrcLoginScreen(),
-  ];
+class IRCMainScreen extends StatefulWidget {
+  const IRCMainScreen({super.key});
 
   @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      body: _screens[_currentIndex],
-      bottomNavigationBar: BottomNavigationBar(
-        currentIndex: _currentIndex,
-        onTap: (index) {
-          setState(() {
-            _currentIndex = index;
-          });
-        },
-        items: const [
-          BottomNavigationBarItem(
-            icon: Icon(Icons.radio),
-            label: 'Canlı Radyo',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.chat),
-            label: 'IRC Sohbet',
-          ),
-        ],
-      ),
-    );
-  }
+  State<IRCMainScreen> createState() => _IRCMainScreenState();
 }
 
-// --- RADYO EKRANI ---
-class RadioScreen extends StatefulWidget {
-  const RadioScreen({super.key});
+class _IRCMainScreenState extends State<IRCMainScreen> with TickerProviderStateMixin {
+  Socket? _socket;
+  bool _isConnected = false;
 
-  @override
-  State<RadioScreen> createState() => _RadioScreenState();
-}
+  final String _server = 'irc.dostyeri.org';
+  final int _port = 6667;
+  late final String _currentNick;
 
-class _RadioScreenState extends State<RadioScreen> {
-  late AudioPlayer _audioPlayer;
-  bool _isPlaying = false;
-  bool _isLoading = false;
-  final String _streamUrl = 'http://dinle.dostfm.org:8948/listen.pls';
+  final List<ChannelTab> _tabs = [ChannelTab(name: 'Status')];
+  TabController? _tabController;
+  int _activeTabIndex = 0;
+
+  final TextEditingController _inputController = TextEditingController();
+  final ScrollController _scrollController = ScrollController();
 
   @override
   void initState() {
     super.initState();
-    _audioPlayer = AudioPlayer();
+    _currentNick = 'DostUser_${DateTime.now().millisecond % 1000}';
+    _initTabController();
+    _connectToIRC();
   }
 
-  @override
-  void dispose() {
-    _audioPlayer.dispose();
-    super.dispose();
-  }
-
-  Future<void> _toggleRadio() async {
-    setState(() {
-      _isLoading = true;
-    });
-
-    try {
-      if (_isPlaying) {
-        await _audioPlayer.stop();
-        setState(() {
-          _isPlaying = false;
-        });
-      } else {
-        await _audioPlayer.setUrl(_streamUrl);
-        await _audioPlayer.play();
-        setState(() {
-          _isPlaying = true;
-        });
-      }
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Radyo çalınırken hata oluştu: $e')),
-      );
-    } finally {
+  void _initTabController() {
+    _tabController?.dispose();
+    _tabController = TabController(length: _tabs.length, vsync: this);
+    _tabController!.addListener(() {
+      if (_tabController!.indexIsChanging) return;
       setState(() {
-        _isLoading = false;
+        _activeTabIndex = _tabController!.index;
+      });
+    });
+  }
+
+  void _addNewTab(String name) {
+    if (!_tabs.any((t) => t.name.toLowerCase() == name.toLowerCase())) {
+      setState(() {
+        _tabs.add(ChannelTab(name: name));
+        _initTabController();
+        _tabController!.animateTo(_tabs.length - 1);
       });
     }
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('DostYeri Canlı Radyo'),
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-      ),
-      body: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: <Widget>[
-            const Icon(Icons.radio, size: 100, color: Colors.deepPurple),
-            const SizedBox(height: 20),
-            const Text('Kesintisiz Müzik Keyfi', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 30),
-            _isLoading
-                ? const CircularProgressIndicator()
-                : ElevatedButton.icon(
-                    onPressed: _toggleRadio,
-                    icon: Icon(_isPlaying ? Icons.stop : Icons.play_arrow),
-                    label: Text(_isPlaying ? 'Radyoyu Durdur' : 'Radyoyu Başlat'),
-                    style: ElevatedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                      textStyle: const TextStyle(fontSize: 18),
-                    ),
-                  ),
-          ],
-        ),
-      ),
-    );
-  }
-}
+  Future<void> _connectToIRC() async {
+    _addMessage('Status', '-> $_server adresine bağlanılıyor...');
+    try {
+      _socket = await Socket.connect(_server, _port, timeout: const Duration(seconds: 10));
+      setState(() {
+        _isConnected = true;
+      });
+      _addMessage('Status', '-> Sunucuyla bağlantı kuruldu, yetkilendiriliyor...');
 
-// --- IRC GİRİŞ EKRANI ---
-class IrcLoginScreen extends StatefulWidget {
-  const IrcLoginScreen({super.key});
+      // IRC Kimlik Bildirimi
+      _sendRaw('NICK $_currentNick');
+      _sendRaw('USER $_currentNick 0 * :DostYeri User');
 
-  @override
-  State<IrcLoginScreen> createState() => _IrcLoginScreenState();
-}
-
-class _IrcLoginScreenState extends State<IrcLoginScreen> {
-  final _serverController = TextEditingController(text: 'irc.dostyeri.org');
-  final _portController = TextEditingController(text: '6667');
-  final _nickController = TextEditingController();
-  final _passController = TextEditingController();
-  final _channelController = TextEditingController(text: '#dostyeri');
-
-  void _connect() {
-    if (_nickController.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Lütfen bir Rumuz (Nick) giriniz!')),
+      _socket!.transform(utf8.decoder).transform(const LineSplitter()).listen(
+        _handleServerMessage,
+        onError: (err) {
+          _addMessage('Status', 'Bağlantı Hatası: $err');
+          setState(() => _isConnected = false);
+        },
+        onDone: () {
+          _addMessage('Status', 'Sunucu bağlantıyı kapattı.');
+          setState(() => _isConnected = false);
+        },
       );
+    } catch (e) {
+      _addMessage('Status', 'Bağlantı kurulamadı: $e');
+      setState(() => _isConnected = false);
+    }
+  }
+
+  void _sendRaw(String data) {
+    if (_socket != null && _isConnected) {
+      _socket!.write('$data\r\n');
+    }
+  }
+
+  void _handleServerMessage(String line) {
+    // Ping/Pong bağlantı hızı ve kopmama önlemi
+    if (line.startsWith('PING')) {
+      final pingArg = line.substring(5);
+      _sendRaw('PONG $pingArg');
       return;
     }
 
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => IrcChatScreen(
-          server: _serverController.text.trim(),
-          port: int.tryParse(_portController.text.trim()) ?? 6667,
-          nickname: _nickController.text.trim(),
-          password: _passController.text.trim(),
-          channel: _channelController.text.trim(),
-        ),
-      ),
+    final timeStr = DateTime.now().toString().substring(11, 16);
+
+    if (line.contains(' PRIVMSG ')) {
+      final parts = line.split(' PRIVMSG ');
+      final senderNick = parts[0].substring(1).split('!')[0];
+      final rest = parts[1];
+      final target = rest.substring(0, rest.indexOf(' '));
+      final msg = rest.substring(rest.indexOf(' :') + 2);
+
+      final tabTarget = target.startsWith('#') ? target : senderNick;
+      _addNewTab(tabTarget);
+      _addMessage(tabTarget, '[$timeStr] <$senderNick> $msg');
+    } else if (line.contains(' JOIN :')) {
+      final nick = line.substring(1, line.indexOf('!'));
+      final channel = line.substring(line.indexOf(' JOIN :') + 7).trim();
+      _addNewTab(channel);
+      _addMessage(channel, '[$timeStr] ** $nick kanala katıldı.');
+      _addUserToChannel(channel, nick);
+    } else if (line.contains(' PART ')) {
+      final nick = line.substring(1, line.indexOf('!'));
+      final channel = line.split(' PART ')[1].split(' ')[0];
+      _addMessage(channel, '[$timeStr] ** $nick kanaldan ayrıldı.');
+      _removeUserFromChannel(channel, nick);
+    } else if (line.contains(' 353 ')) {
+      // Kanal kullanıcı listesi (Names)
+      try {
+        final parts = line.split(' 353 ')[1].split(' :');
+        final channel = parts[0].split(' ').last;
+        final nicks = parts[1].split(' ');
+        _addNewTab(channel);
+        for (var n in nicks) {
+          if (n.isNotEmpty) _addUserToChannel(channel, n);
+        }
+      } catch (_) {}
+    } else {
+      _addMessage('Status', line);
+    }
+  }
+
+  void _addUserToChannel(String channel, String nick) {
+    final tab = _tabs.firstWhere((t) => t.name.toLowerCase() == channel.toLowerCase(), orElse: () => _tabs[0]);
+    if (!tab.userList.contains(nick)) {
+      setState(() {
+        tab.userList.add(nick);
+      });
+    }
+  }
+
+  void _removeUserFromChannel(String channel, String nick) {
+    final tab = _tabs.firstWhere((t) => t.name.toLowerCase() == channel.toLowerCase(), orElse: () => _tabs[0]);
+    setState(() {
+      tab.userList.remove(nick);
+    });
+  }
+
+  void _addMessage(String tabName, String msg) {
+    setState(() {
+      final tab = _tabs.firstWhere((t) => t.name.toLowerCase() == tabName.toLowerCase(), orElse: () => _tabs[0]);
+      tab.messages.add(msg);
+    });
+    _scrollToBottom();
+  }
+
+  void _scrollToBottom() {
+    Future.delayed(const Duration(milliseconds: 100), () {
+      if (_scrollController.hasClients) {
+        _scrollController.animateTo(
+          _scrollController.position.maxScrollExtent,
+          duration: const Duration(milliseconds: 200),
+          curve: Curves.easeOut,
+        );
+      }
+    });
+  }
+
+  void _sendMessage() {
+    final text = _inputController.text.trim();
+    if (text.isEmpty) return;
+
+    final currentTab = _tabs[_activeTabIndex];
+
+    if (text.startsWith('/')) {
+      _sendRaw(text.substring(1));
+    } else if (currentTab.name != 'Status') {
+      _sendRaw('PRIVMSG ${currentTab.name} :$text');
+      final timeStr = DateTime.now().toString().substring(11, 16);
+      _addMessage(currentTab.name, '[$timeStr] <$_currentNick> $text');
+    }
+
+    _inputController.clear();
+  }
+
+  // Tıklanan nick için yönetim menüsü
+  void _showUserActionMenu(String rawNick, String channelName) {
+    final cleanNick = rawNick.replaceAll(RegExp(r'[@+~%&]'), '');
+
+    showDialog(
+      context: context,
+      builder: (ctx) {
+        return AlertDialog(
+          backgroundColor: const Color(0xFF2C2C2C),
+          title: Text(
+            cleanNick,
+            style: const TextStyle(color: Colors.lightBlueAccent, fontWeight: FontWeight.bold),
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.chat, color: Colors.greenAccent),
+                title: const Text('Özel Mesaj (Query)'),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _addNewTab(cleanNick);
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.info_outline, color: Colors.amber),
+                title: const Text('Whois Bilgisi'),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _sendRaw('WHOIS $cleanNick');
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.block, color: Colors.orange),
+                title: const Text('Engelle (Ignore)'),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _addMessage('Status', '$cleanNick engellendi.');
+                },
+              ),
+              const Divider(color: Colors.white24),
+              ListTile(
+                leading: const Icon(Icons.star, color: Colors.yellow),
+                title: const Text('Voice Ver (+v)'),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _sendRaw('MODE $channelName +v $cleanNick');
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.security, color: Colors.cyan),
+                title: const Text('Op Ver (+o)'),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _sendRaw('MODE $channelName +o $cleanNick');
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.gavel, color: Colors.redAccent),
+                title: const Text('Kick + Ban (Yasakla)'),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _sendRaw('MODE $channelName +b $cleanNick');
+                  _sendRaw('KICK $channelName $cleanNick :Atıldınız.');
+                },
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 
   @override
   Widget build(BuildContext context) {
+    final currentTab = _tabs.isNotEmpty && _activeTabIndex < _tabs.length ? _tabs[_activeTabIndex] : _tabs[0];
+
     return Scaffold(
       appBar: AppBar(
-        title: const Text('IRC Sohbet Bağlantısı'),
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
+        title: Text(currentTab.name),
+        actions: [
+          Builder(
+            builder: (ctx) => IconButton(
+              icon: const Icon(Icons.people),
+              tooltip: 'Kanal Rumuzları',
+              onPressed: () {
+                Scaffold.of(ctx).openEndDrawer();
+              },
+            ),
+          ),
+        ],
+        // Üst sekmeler kaydırılabilir yapıda
+        bottom: _tabs.isNotEmpty
+            ? TabBar(
+                controller: _tabController,
+                isScrollable: true,
+                indicatorColor: Colors.lightBlueAccent,
+                labelColor: Colors.lightBlueAccent,
+                unselectedLabelColor: Colors.white70,
+                tabs: _tabs.map((t) => Tab(text: t.name)).toList(),
+              )
+            : null,
       ),
-      body: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: ListView(
+
+      // Sağ taraftan açılan kapanan nick listesi çekmecesi
+      endDrawer: Drawer(
+        backgroundColor: const Color(0xFF1E1E1E),
+        child: Column(
           children: [
-            const SizedBox(height: 10),
-            TextField(
-              controller: _serverController,
-              decoration: const InputDecoration(labelText: 'Sunucu Adresi (Host)', border: OutlineInputBorder()),
+            UserAccountsDrawerHeader(
+              backgroundColor: const Color(0xFF2B2B2B),
+              accountName: Text('${currentTab.name} Rumuzları'),
+              accountEmail: Text('${currentTab.userList.length} Kişi Bağlı'),
+              currentAccountPicture: const CircleAvatar(
+                backgroundColor: Colors.lightBlue,
+                child: Icon(Icons.group, color: Colors.white),
+              ),
             ),
-            const SizedBox(height: 15),
-            TextField(
-              controller: _portController,
-              keyboardType: TextInputType.number,
-              decoration: const InputDecoration(labelText: 'Port', border: OutlineInputBorder()),
-            ),
-            const SizedBox(height: 15),
-            TextField(
-              controller: _nickController,
-              decoration: const InputDecoration(labelText: 'Rumuz (Nick)', border: OutlineInputBorder()),
-            ),
-            const SizedBox(height: 15),
-            TextField(
-              controller: _passController,
-              obscureText: true,
-              decoration: const InputDecoration(labelText: 'Şifre (Opsiyonel)', border: OutlineInputBorder()),
-            ),
-            const SizedBox(height: 15),
-            TextField(
-              controller: _channelController,
-              decoration: const InputDecoration(labelText: 'Kanal (Örn: #sohbet)', border: OutlineInputBorder()),
-            ),
-            const SizedBox(height: 25),
-            ElevatedButton(
-              onPressed: _connect,
-              style: ElevatedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 14)),
-              child: const Text('Sohbete Bağlan', style: TextStyle(fontSize: 18)),
+            Expanded(
+              child: currentTab.userList.isEmpty
+                  ? const Center(
+                      child: Text(
+                        'Bu kanalda listelenecek rumuz yok\n(veya Status sekmesindesiniz)',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(color: Colors.white38, fontSize: 12),
+                      ),
+                    )
+                  : ListView.builder(
+                      itemCount: currentTab.userList.length,
+                      itemBuilder: (ctx, idx) {
+                        final nick = currentTab.userList[idx];
+                        return ListTile(
+                          dense: true,
+                          leading: const Icon(Icons.person, size: 18, color: Colors.white70),
+                          title: Text(nick, style: const TextStyle(fontSize: 14)),
+                          onTap: () {
+                            Navigator.pop(ctx);
+                            _showUserActionMenu(nick, currentTab.name);
+                          },
+                        );
+                      },
+                    ),
             ),
           ],
         ),
       ),
-    );
-  }
-}
 
-// --- IRC SOHBET EKRANI ---
-class IrcChatScreen extends StatefulWidget {
-  final String server;
-  final int port;
-  final String nickname;
-  final String password;
-  final String channel;
-
-  const IrcChatScreen({
-    super.key,
-    required this.server,
-    required this.port,
-    required this.nickname,
-    required this.password,
-    required this.channel,
-  });
-
-  @override
-  State<IrcChatScreen> createState() => _IrcChatScreenState();
-}
-
-class _IrcChatScreenState extends State<IrcChatScreen> {
-  Socket? _socket;
-  final List<String> _messages = [];
-  final TextEditingController _msgController = TextEditingController();
-  bool _isConnected = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _connectToIrc();
-  }
-
-  Future<void> _connectToIrc() async {
-    try {
-      setState(() {
-        _messages.add('-> ${widget.server} adresine bağlanılıyor...');
-      });
-
-      _socket = await Socket.connect(widget.server, widget.port);
-      
-      setState(() {
-        _isConnected = true;
-        _messages.add('-> Sunucuya bağlandı, yetkilendiriliyor...');
-      });
-
-      if (widget.password.isNotEmpty) {
-        _socket!.write('PASS ${widget.password}\r\n');
-      }
-      _socket!.write('NICK ${widget.nickname}\r\n');
-      _socket!.write('USER ${widget.nickname} 0 * :${widget.nickname}\r\n');
-
-      _socket!.listen(
-        (data) {
-          String serverResponse = utf8.decode(data);
-          List<String> lines = serverResponse.split('\r\n');
-          for (var line in lines) {
-            if (line.isNotEmpty) {
-              if (line.startsWith('PING')) {
-                String pingParam = line.split(' ')[1];
-                _socket!.write('PONG $pingParam\r\n');
-              } else if (line.contains(' 001 ')) {
-                _socket!.write('JOIN ${widget.channel}\r\n');
-                if (mounted) {
-                  setState(() {
-                    _messages.add('-> ${widget.channel} kanalına giriş yapıldı.');
-                  });
-                }
-              }
-              if (mounted) {
-                setState(() {
-                  _messages.add(line);
-                });
-              }
-            }
-          }
-        },
-        onDone: () {
-          if (mounted) {
-            setState(() {
-              _isConnected = false;
-              _messages.add('<- Bağlantı kapatıldı.');
-            });
-          }
-        },
-        onError: (error) {
-          if (mounted) {
-            setState(() {
-              _messages.add('Hata: $error');
-            });
-          }
-        },
-      );
-    } catch (e) {
-      if (mounted) {
-        setState(() {
-          _messages.add('Bağlantı Kurulamadı: $e');
-        });
-      }
-    }
-  }
-
-  void _sendMessage() {
-    if (_msgController.text.trim().isEmpty || _socket == null || !_isConnected) return;
-    String text = _msgController.text.trim();
-    _socket!.write('PRIVMSG ${widget.channel} :$text\r\n');
-    setState(() {
-      _messages.add('${widget.nickname}: $text');
-    });
-    _msgController.clear();
-  }
-
-  @override
-  void dispose() {
-    _socket?.destroy();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Text('${widget.channel} (${_isConnected ? "Bağlı" : "Bağlanıyor..."})'),
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-      ),
       body: Column(
         children: [
           Expanded(
             child: ListView.builder(
-              padding: const EdgeInsets.all(8),
-              itemCount: _messages.length,
-              itemBuilder: (context, index) {
+              controller: _scrollController,
+              padding: const EdgeInsets.all(8.0),
+              itemCount: currentTab.messages.length,
+              itemBuilder: (ctx, idx) {
+                final line = currentTab.messages[idx];
                 return Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 2),
-                  child: Text(_messages[index], style: const TextStyle(fontSize: 14)),
+                  padding: const EdgeInsets.symmetric(vertical: 2.0),
+                  child: Text(
+                    line,
+                    style: const TextStyle(
+                      fontFamily: 'monospace',
+                      fontSize: 13,
+                      color: Colors.white90,
+                    ),
+                  ),
                 );
               },
             ),
           ),
           Container(
-            padding: const EdgeInsets.all(8),
-            color: Colors.grey[200],
+            padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 4.0),
+            color: const Color(0xFF1F1F1F),
             child: Row(
               children: [
                 Expanded(
                   child: TextField(
-                    controller: _msgController,
+                    controller: _inputController,
+                    style: const TextStyle(color: Colors.white),
                     decoration: const InputDecoration(
-                      hintText: 'Mesajınızı yazın...',
-                      border: OutlineInputBorder(),
-                      fillColor: Colors.white,
-                      filled: true,
+                      hintText: 'Mesaj yaz veya komut gir (/join #kanal)...',
+                      hintStyle: TextStyle(color: Colors.white38),
+                      border: InputBorder.none,
                     ),
                     onSubmitted: (_) => _sendMessage(),
                   ),
                 ),
-                const SizedBox(width: 8),
                 IconButton(
-                  icon: const Icon(Icons.send, color: Colors.deepPurple),
+                  icon: const Icon(Icons.send, color: Colors.lightBlueAccent),
                   onPressed: _sendMessage,
                 ),
               ],
