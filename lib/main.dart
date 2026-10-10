@@ -391,7 +391,7 @@ class _IrcChatScreenState extends State<IrcChatScreen> {
                       hintText: 'Mesajınızı yazın...',
                       border: OutlineInputBorder(),
                       fillColor: Colors.white,
-                      filled: extraFilled: true,
+                      filled: true,
                     ),
                     onSubmitted: (_) => _sendMessage(),
                   ),
