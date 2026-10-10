@@ -349,11 +349,8 @@ class _IRCMainScreenState extends State<IRCMainScreen> with TickerProviderStateM
     _inputController.clear();
   }
 
-  // mIRC Renk Kodlarını Çözümleyen Parser
   List<TextSpan> _parseMircColors(String text, Color baseColor) {
     final List<TextSpan> spans = [];
-    // mIRC renk kodu: \x03 (ASCII 3) veya ANSI kodları
-    // Basit ve güvenli bir regex tabanlı split/parse mekanizması
     final regex = RegExp(r'\x03(\d{1,2})?(?:,\d{1,2})?|\x02|\x1F|\x0F|\x16');
     
     int currentIndex = 0;
@@ -376,13 +373,11 @@ class _IRCMainScreenState extends State<IRCMainScreen> with TickerProviderStateM
 
       final code = match.group(0)!;
       if (code.startsWith('\x03')) {
-        // Renk kodu değişimi
         final matchNum = RegExp(r'\d{1,2}').firstMatch(code);
         if (matchNum != null) {
           final colorCode = int.tryParse(matchNum.group(0)!) ?? 0;
           currentColor = _getMircColor(colorCode, baseColor);
         } else {
-          // Kod sıfırlama (\x03 tek başına renkleri normale döndürür)
           currentColor = baseColor;
         }
       } else if (code == '\x02') {
@@ -390,7 +385,6 @@ class _IRCMainScreenState extends State<IRCMainScreen> with TickerProviderStateM
       } else if (code == '\x1F') {
         isUnderline = !isUnderline;
       } else if (code == '\x0F') {
-        // Tüm biçimlendirmeyi sıfırla
         currentColor = baseColor;
         isBold = false;
         isUnderline = false;
@@ -417,7 +411,6 @@ class _IRCMainScreenState extends State<IRCMainScreen> with TickerProviderStateM
     return spans;
   }
 
-  // Standart mIRC 16 Renk Paleti Karşılığı
   Color _getMircColor(int code, Color fallback) {
     switch (code) {
       case 0: return Colors.white;
@@ -516,68 +509,74 @@ class _IRCMainScreenState extends State<IRCMainScreen> with TickerProviderStateM
   Widget build(BuildContext context) {
     final currentTab = _tabs.isNotEmpty && _activeTabIndex < _tabs.length ? _tabs[_activeTabIndex] : _tabs[0];
 
-    return MaterialApp(
-      debugShowCheckedModeBanner: false,
-      scaffoldMessengerKey: _scaffoldMessengerKey,
-      theme: ThemeData.dark().copyWith(
-        primaryColor: const Color(0xFF1E88E5),
-        scaffoldBackgroundColor: const Color(0xFF121212),
-        appBarTheme: const AppBarTheme(
-          backgroundColor: Color(0xFF1F1F1F),
-          elevation: 2,
-        ),
+    return Scaffold(
+      key: _scaffoldMessengerKey,
+      appBar: AppBar(
+        title: Text(currentTab.name),
+        actions: [
+          Builder(
+            builder: (ctx) => IconButton(
+              icon: const Icon(Icons.people),
+              tooltip: 'Kanal Rumuzları',
+              onPressed: () {
+                Scaffold.of(ctx).openEndDrawer();
+              },
+            ),
+          ),
+        ],
+        bottom: _tabs.isNotEmpty
+            ? TabBar(
+                controller: _tabController,
+                isScrollable: true,
+                indicatorColor: Colors.lightBlueAccent,
+                labelColor: Colors.lightBlueAccent,
+                unselectedLabelColor: Colors.white70,
+                tabs: _tabs.map((t) {
+                  return Tab(
+                    child: Text(
+                      t.name,
+                      style: TextStyle(
+                        color: t.hasNotification ? Colors.redAccent : null,
+                        fontWeight: t.hasNotification ? FontWeight.bold : FontWeight.normal,
+                      ),
+                    ),
+                  );
+                }).toList(),
+              )
+            : null,
       ),
-      home: Scaffold(
-        appBar: AppBar(
-          title: Text(currentTab.name),
-          actions: [
-            Builder(
-              builder: (ctx) => IconButton(
-                icon: const Icon(Icons.people),
-                tooltip: 'Kanal Rumuzları',
-                onPressed: () {
-                  Scaffold.of(ctx).openEndDrawer();
-                },
+      endDrawer: Drawer(
+        backgroundColor: const Color(0xFF1E1E1E),
+        child: Column(
+          children: [
+            UserAccountsDrawerHeader(
+              decoration: const BoxDecoration(color: Color(0xFF2B2B2B)),
+              accountName: Text('${currentTab.name} Rumuzları'),
+              accountEmail: Text('${currentTab.userList.length} Kişi Bağlı'),
+              currentAccountPicture: const CircleAvatar(
+                backgroundColor: Colors.lightBlue,
+                child: Icon(Icons.group, color: Colors.white),
               ),
             ),
-          ],
-          bottom: _tabs.isNotEmpty
-              ? TabBar(
-                  controller: _tabController,
-                  isScrollable: true,
-                  indicatorColor: Colors.lightBlueAccent,
-                  labelColor: Colors.lightBlueAccent,
-                  unselectedLabelColor: Colors.white70,
-                  tabs: _tabs.map((t) {
-                    return Tab(
+            Expanded(
+              child: currentTab.userList.isEmpty
+                  ? const Center(
                       child: Text(
-                        t.name,
-                        style: TextStyle(
-                          color: t.hasNotification ? Colors.redAccent : null,
-                          fontWeight: t.hasNotification ? FontWeight.bold : FontWeight.normal,
-                        ),
+                        'Bu kanalda listelenecek rumuz yok\n(veya Status sekmesindesiniz)',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(color: Colors.white38, fontSize: 12),
                       ),
-                    );
-                  }).toList(),
-                )
-              : null,
-        ),
-        endDrawer: Drawer(
-          backgroundColor: const Color(0xFF1E1E1E),
-          child: Column(
-            children: [
-              UserAccountsDrawerHeader(
-                decoration: const BoxDecoration(color: Color(0xFF2B2B2B)),
-                accountName: Text('${currentTab.name} Rumuzları'),
-                accountEmail: Text('${currentTab.userList.length} Kişi Bağlı'),
-                currentAccountPicture: const CircleAvatar(
-                  backgroundColor: Colors.lightBlue,
-                  child: Icon(Icons.group, color: Colors.white),
-                ),
-              ),
-              Expanded(
-                child: currentTab.userList.isEmpty
-                    ? const Center(
-                        child: Text(
-                          'Bu kanalda listelenecek rumuz yok\n(veya Status sekmesindesiniz)',
-                          tex
+                    )
+                  : ListView.builder(
+                      itemCount: currentTab.userList.length,
+                      itemBuilder: (ctx, idx) {
+                        final nick = currentTab.userList[idx];
+                        final isMe = nick.replaceAll(RegExp(r'[@+~%&]'), '').toLowerCase() == _currentNick.toLowerCase();
+                        return ListTile(
+                          dense: true,
+                          leading: Icon(
+                            Icons.person,
+                            size: 18,
+                            color: isMe ? Colors.lightBlueAccent : Colors.white70,
+                          ),
+                
